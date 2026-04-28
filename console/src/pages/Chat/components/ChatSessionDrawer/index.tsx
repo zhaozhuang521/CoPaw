@@ -149,7 +149,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     });
   }, [sessions]);
 
-
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
     const list = await sessionApi.getSessionList();
@@ -388,54 +387,54 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           </div>
         ) : (
           <>
-          <div className={styles.virtualListBackground}>
-            <Spin size="small" />
-          </div>
-          <FixedSizeList
-            height={listHeight}
-            width="100%"
-            itemCount={sortedSessions.length}
-            itemSize={ITEM_HEIGHT}
-            overscanCount={20}
-            className={styles.list}
-          >
-            {({ index, style }) => {
-              const session = sortedSessions[index];
-              const ext = session as ExtendedChatSession;
-              const channelKey = ext.channel?.trim() || "";
-              const channelLabel = channelKey
-                ? getChannelLabel(channelKey, t)
-                : undefined;
-              return (
-                <div style={style}>
-                  <ChatSessionItem
-                    key={session.id}
-                    sessionId={session.id!}
-                    name={session.name || "New Chat"}
-                    time={formatCreatedAt(ext.createdAt ?? null)}
-                    channelKey={channelKey || undefined}
-                    channelLabel={channelLabel}
-                    chatStatus={ext.status}
-                    generating={ext.generating}
-                    pinned={ext.pinned}
-                    active={session.id === currentSessionId}
-                    editing={editingSessionId === session.id}
-                    editValue={
-                      editingSessionId === session.id ? editValue : undefined
-                    }
-                    onClick={handleSessionClick}
-                    onEdit={handleEditStart}
-                    onDelete={handleDelete}
-                    onPin={handlePinToggle}
-                    onEditChange={handleEditChange}
-                    onEditSubmit={handleEditSubmit}
-                    onEditCancel={handleEditCancel}
-                    onContextMenu={handleItemContextMenu}
-                  />
-                </div>
-              );
-            }}
-          </FixedSizeList>
+            <div className={styles.virtualListBackground}>
+              <Spin size="small" />
+            </div>
+            <FixedSizeList
+              height={listHeight}
+              width="100%"
+              itemCount={sortedSessions.length}
+              itemSize={ITEM_HEIGHT}
+              overscanCount={20}
+              className={styles.list}
+            >
+              {({ index, style }) => {
+                const session = sortedSessions[index];
+                const ext = session as ExtendedChatSession;
+                const channelKey = ext.channel?.trim() || "";
+                const channelLabel = channelKey
+                  ? getChannelLabel(channelKey, t)
+                  : undefined;
+                return (
+                  <div style={style}>
+                    <ChatSessionItem
+                      key={session.id}
+                      sessionId={session.id!}
+                      name={session.name || "New Chat"}
+                      time={formatCreatedAt(ext.createdAt ?? null)}
+                      channelKey={channelKey || undefined}
+                      channelLabel={channelLabel}
+                      chatStatus={ext.status}
+                      generating={ext.generating}
+                      pinned={ext.pinned}
+                      active={session.id === currentSessionId}
+                      editing={editingSessionId === session.id}
+                      editValue={
+                        editingSessionId === session.id ? editValue : undefined
+                      }
+                      onClick={handleSessionClick}
+                      onEdit={handleEditStart}
+                      onDelete={handleDelete}
+                      onPin={handlePinToggle}
+                      onEditChange={handleEditChange}
+                      onEditSubmit={handleEditSubmit}
+                      onEditCancel={handleEditCancel}
+                      onContextMenu={handleItemContextMenu}
+                    />
+                  </div>
+                );
+              }}
+            </FixedSizeList>
           </>
         )}
         <div className={styles.bottomGradient} />
