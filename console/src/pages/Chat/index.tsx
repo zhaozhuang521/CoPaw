@@ -528,7 +528,7 @@ export default function ChatPage() {
     const currentSessionId = window.currentSessionId || chatId || "";
 
     // Filter approvals by root_session_id (includes children sessions)
-    console.log(
+    console.debug(
       "[Approval] Filtering approvals:",
       "currentSessionId=",
       currentSessionId,
@@ -563,7 +563,7 @@ export default function ChatPage() {
         )
       : approvals; // Show all if no session ID (fallback)
 
-    console.log(
+    console.debug(
       "[Approval] After filtering:",
       sessionApprovals.length,
       "approval(s)",

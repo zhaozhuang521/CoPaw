@@ -5,7 +5,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Drawer } from "antd";
+import { Drawer, Spin } from "antd";
+import { FixedSizeList } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
 import {
@@ -26,8 +27,8 @@ import {
 } from "../../../../components/ContextMenu";
 import styles from "./index.module.less";
 
-/** Number of sessions to render per page for progressive loading */
-const PAGE_SIZE = 50;
+/** Fixed height of each session item in pixels (matches CSS min-height) */
+const ITEM_HEIGHT = 77;
 
 /** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
 interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
@@ -88,32 +89,47 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
 
-  /** Progressive rendering: only show the first N sessions, load more on scroll */
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const listRef = useRef<HTMLDivElement>(null);
+  /** Whether the session list is being fetched (default true because destroyOnClose re-mounts) */
+  const [listLoading, setListLoading] = useState(true);
+
+  /** Height of the virtual list container, measured via ResizeObserver */
+  const [listHeight, setListHeight] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  /** Callback ref: attach a ResizeObserver whenever the wrapper DOM node appears */
+  const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
+    if (!node) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = entry.contentRect.height;
+        if (height > 0) {
+          setListHeight(height);
+        }
+      }
+    });
+
+    observer.observe(node);
+    observerRef.current = observer;
+
+    // Measure immediately in case layout is already stable
+    const initialHeight = node.clientHeight;
+    if (initialHeight > 0) {
+      setListHeight(initialHeight);
+    }
+  }, []);
 
   /** Shared context menu — only one instance instead of one per item */
   const sharedContextMenu = useContextMenu();
   const [contextMenuSessionId, setContextMenuSessionId] = useState<
     string | null
   >(null);
-
-  /** Reset visible count when drawer opens */
-  useEffect(() => {
-    if (props.open) {
-      setVisibleCount(PAGE_SIZE);
-    }
-  }, [props.open]);
-
-  /** Load more sessions when scrolling near the bottom */
-  const handleListScroll = useCallback(() => {
-    const listElement = listRef.current;
-    if (!listElement) return;
-    const { scrollTop, scrollHeight, clientHeight } = listElement;
-    if (scrollHeight - scrollTop - clientHeight < 200) {
-      setVisibleCount((prev) => prev + PAGE_SIZE);
-    }
-  }, []);
 
   /** Sessions sorted by pinned first, then by createdAt descending */
   const sortedSessions = useMemo(() => {
@@ -133,11 +149,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     });
   }, [sessions]);
 
-  /** Only render a slice of sorted sessions for progressive loading */
-  const visibleSessions = useMemo(
-    () => sortedSessions.slice(0, visibleCount),
-    [sortedSessions, visibleCount],
-  );
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -152,6 +163,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     let isCancelled = false;
 
     const fetchSessions = async () => {
+      setListLoading(true);
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
@@ -159,6 +171,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
+      } finally {
+        if (!isCancelled) {
+          setListLoading(false);
+        }
       }
     };
 
@@ -358,43 +374,70 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       </div>
 
       {/* Session list */}
-      <div className={styles.listWrapper}>
+      <div className={styles.listWrapper} ref={listWrapperRef}>
         <div className={styles.topGradient} />
-        <div className={styles.list} ref={listRef} onScroll={handleListScroll}>
-          {visibleSessions.map((session) => {
-            const ext = session as ExtendedChatSession;
-            const channelKey = ext.channel?.trim() || "";
-            const channelLabel = channelKey
-              ? getChannelLabel(channelKey, t)
-              : undefined;
-            return (
-              <ChatSessionItem
-                key={session.id}
-                sessionId={session.id!}
-                name={session.name || "New Chat"}
-                time={formatCreatedAt(ext.createdAt ?? null)}
-                channelKey={channelKey || undefined}
-                channelLabel={channelLabel}
-                chatStatus={ext.status}
-                generating={ext.generating}
-                pinned={ext.pinned}
-                active={session.id === currentSessionId}
-                editing={editingSessionId === session.id}
-                editValue={
-                  editingSessionId === session.id ? editValue : undefined
-                }
-                onClick={handleSessionClick}
-                onEdit={handleEditStart}
-                onDelete={handleDelete}
-                onPin={handlePinToggle}
-                onEditChange={handleEditChange}
-                onEditSubmit={handleEditSubmit}
-                onEditCancel={handleEditCancel}
-                onContextMenu={handleItemContextMenu}
-              />
-            );
-          })}
-        </div>
+        {listLoading ? (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              padding: 40,
+            }}
+          >
+            <Spin />
+          </div>
+        ) : (
+          <>
+          <div className={styles.virtualListBackground}>
+            <Spin size="small" />
+          </div>
+          <FixedSizeList
+            height={listHeight}
+            width="100%"
+            itemCount={sortedSessions.length}
+            itemSize={ITEM_HEIGHT}
+            overscanCount={20}
+            className={styles.list}
+          >
+            {({ index, style }) => {
+              const session = sortedSessions[index];
+              const ext = session as ExtendedChatSession;
+              const channelKey = ext.channel?.trim() || "";
+              const channelLabel = channelKey
+                ? getChannelLabel(channelKey, t)
+                : undefined;
+              return (
+                <div style={style}>
+                  <ChatSessionItem
+                    key={session.id}
+                    sessionId={session.id!}
+                    name={session.name || "New Chat"}
+                    time={formatCreatedAt(ext.createdAt ?? null)}
+                    channelKey={channelKey || undefined}
+                    channelLabel={channelLabel}
+                    chatStatus={ext.status}
+                    generating={ext.generating}
+                    pinned={ext.pinned}
+                    active={session.id === currentSessionId}
+                    editing={editingSessionId === session.id}
+                    editValue={
+                      editingSessionId === session.id ? editValue : undefined
+                    }
+                    onClick={handleSessionClick}
+                    onEdit={handleEditStart}
+                    onDelete={handleDelete}
+                    onPin={handlePinToggle}
+                    onEditChange={handleEditChange}
+                    onEditSubmit={handleEditSubmit}
+                    onEditCancel={handleEditCancel}
+                    onContextMenu={handleItemContextMenu}
+                  />
+                </div>
+              );
+            }}
+          </FixedSizeList>
+          </>
+        )}
         <div className={styles.bottomGradient} />
       </div>
 
