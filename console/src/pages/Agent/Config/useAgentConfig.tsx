@@ -97,9 +97,8 @@ export function useAgentConfig() {
         approvalLevel !== initialApprovalLevelRef.current;
       await Promise.all([
         api.updateAgentRunningConfig(values as AgentsRunningConfig),
-        approvalLevelChanged && agentProfileRef.current
+        approvalLevelChanged
           ? agentsApi.updateAgent(selectedAgent, {
-              ...agentProfileRef.current,
               approval_level: approvalLevel,
             })
           : Promise.resolve(),

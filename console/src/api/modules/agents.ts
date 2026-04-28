@@ -23,8 +23,8 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
-  // Update agent configuration
-  updateAgent: (agentId: string, agent: AgentProfileConfig) =>
+  // Update agent configuration (partial update supported)
+  updateAgent: (agentId: string, agent: Partial<AgentProfileConfig>) =>
     request<AgentProfileConfig>(`/agents/${agentId}`, {
       method: "PUT",
       body: JSON.stringify(agent),

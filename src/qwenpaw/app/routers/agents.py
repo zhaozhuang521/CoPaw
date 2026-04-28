@@ -357,14 +357,19 @@ async def create_agent(
     "/{agentId}",
     response_model=AgentProfileConfig,
     summary="Update agent",
-    description="Update agent configuration and trigger reload",
+    description="Update agent configuration (supports partial update)",
 )
 async def update_agent(
     agentId: str = PathParam(...),
-    agent_config: AgentProfileConfig = Body(...),
+    update_data: dict = Body(...),
     request: Request = None,
 ) -> AgentProfileConfig:
-    """Update agent configuration."""
+    """Update agent configuration.
+
+    Accepts a partial or full agent configuration dict.  Only the
+    fields present in the request body are written; all other fields
+    are preserved from the existing configuration.
+    """
     config = load_config()
 
     if agentId not in config.agents.profiles:
@@ -375,16 +380,16 @@ async def update_agent(
 
     existing_config = load_agent_config(agentId)
 
-    update_data = agent_config.model_dump(exclude_unset=True)
+    updatable_fields = set(AgentProfileConfig.model_fields.keys()) - {"id"}
     for key, value in update_data.items():
-        if key != "id":
+        if key in updatable_fields:
             setattr(existing_config, key, value)
 
     existing_config.id = agentId
     save_agent_config(agentId, existing_config)
     schedule_agent_reload(request, agentId)
 
-    return agent_config
+    return existing_config
 
 
 @router.delete(
