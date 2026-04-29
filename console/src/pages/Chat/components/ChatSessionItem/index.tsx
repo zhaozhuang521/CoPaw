@@ -130,15 +130,29 @@ const ChatSessionItem: React.FC<ChatSessionItemProps> = (props) => {
             onCompositionEnd={() => {
               isComposingRef.current = false;
             }}
-            onPressEnter={() => {
-              if (!isComposingRef.current) {
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" &&
+                !e.nativeEvent.isComposing &&
+                !isComposingRef.current
+              ) {
+                e.preventDefault();
                 props.onEditSubmit?.();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                props.onEditCancel?.();
               }
             }}
             onBlur={() => {
-              if (!isComposingRef.current) {
-                props.onEditSubmit?.();
-              }
+              /* Delay slightly so that IME composition end + blur
+                 ordering issues on some browsers don't cause
+                 premature submit */
+              setTimeout(() => {
+                if (!isComposingRef.current) {
+                  props.onEditSubmit?.();
+                }
+              }, 100);
             }}
             onClick={(e) => e.stopPropagation()}
           />
