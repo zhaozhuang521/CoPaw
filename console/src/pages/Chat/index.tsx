@@ -1080,6 +1080,15 @@ const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
 export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+
+  // Temporary local session ids (created before the first message is sent) are
+  // not real backend sessions and must never be used for URL restore, session
+  // preference, or persistence.
+  const isLocalTimestampId = useCallback(
+    (id: string | null | undefined): boolean =>
+      !!id && /^\d+-[a-z0-9]+$/.test(id),
+    [],
+  );
   const location = useLocation();
   const { isDark } = useTheme();
   const { codingMode, initialized } = useCodingMode();
@@ -1594,9 +1603,13 @@ export default function ChatPage() {
     selectedAgent,
   );
 
-  const { setLastChatId, getLastChatId } = useAgentStore();
+  const { setLastChatId, getLastChatId, removeLastChatId } = useAgentStore();
   const setLastChatIdRef = useRef(setLastChatId);
   setLastChatIdRef.current = setLastChatId;
+  const getLastChatIdRef = useRef(getLastChatId);
+  getLastChatIdRef.current = getLastChatId;
+  const removeLastChatIdRef = useRef(removeLastChatId);
+  removeLastChatIdRef.current = removeLastChatId;
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
 
@@ -2027,8 +2040,15 @@ export default function ChatPage() {
   // useMount auto-selects the correct session without an extra getSession round-trip.
   // When URL has no chatId (e.g. navigating back from /settings), fall back to the
   // last actively selected session to avoid jumping to the first session on re-mount.
-  const effectiveChatId =
-    chatId || sessionApi.lastActiveChatId || getLastChatId(selectedAgent);
+  // Never use a temporary local timestamp id here: it would be passed to the SDK
+  // as preferredChatId and could be navigated to as a bogus URL.
+  const safeLastActive = isLocalTimestampId(sessionApi.lastActiveChatId)
+    ? null
+    : sessionApi.lastActiveChatId;
+  const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
+    ? null
+    : getLastChatId(selectedAgent);
+  const effectiveChatId = chatId || safeLastActive || safeLastStored;
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -2062,6 +2082,15 @@ export default function ChatPage() {
 
     sessionApi.onSessionRemoved = (removedId) => {
       if (!isChatActiveRef.current) return;
+
+      // If the persisted last-chat id for the current agent matches the
+      // removed session, clear it so agent-switch restore doesn't resurrect
+      // a deleted conversation.
+      const agentId = selectedAgentRef.current;
+      if (getLastChatIdRef.current(agentId) === removedId) {
+        removeLastChatIdRef.current(agentId);
+      }
+
       // Clear URL when current session is removed
       // Check if removed session matches current session (by realId or sessionId)
       const currentRealId = sessionApi.getRealIdForSession(
@@ -2069,6 +2098,8 @@ export default function ChatPage() {
       );
       if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
+        sessionApi.lastActiveChatId = null;
+        removeLastChatIdRef.current(agentId);
         navigateRef.current(buildCurrentBasePath(), { replace: true });
       }
     };
@@ -2124,6 +2155,12 @@ export default function ChatPage() {
 
       const resolvedTarget = sessionApi.getEffectiveSessionId(targetId, null);
 
+      // Never navigate to a temporary local timestamp id. The SDK may
+      // auto-select an unresolved local session after an agent switch; ignoring
+      // it keeps the URL on /chat until the user sends a message or selects a
+      // real backend session.
+      if (isLocalTimestampId(resolvedTarget)) return;
+
       if (
         resolvedTarget !== lastSessionIdRef.current &&
         targetId !== lastSessionIdRef.current
@@ -2149,7 +2186,15 @@ export default function ChatPage() {
       }
       lastSessionIdRef.current = sessionId;
       sessionApi.lastActiveChatId = sessionId;
-      setLastChatIdRef.current(selectedAgentRef.current, sessionId);
+      // Do not persist a temporary local timestamp id. It would otherwise be
+      // restored on agent switch and appear as an unknown id in the URL.
+      // The real backend UUID is persisted by onSessionIdResolved after the
+      // first message is sent.
+      if (isLocalTimestampId(sessionId)) {
+        removeLastChatIdRef.current(selectedAgentRef.current);
+      } else {
+        setLastChatIdRef.current(selectedAgentRef.current, sessionId);
+      }
       navigateRef.current(buildCurrentBasePath(), { replace: true });
     };
 
@@ -2159,7 +2204,7 @@ export default function ChatPage() {
       sessionApi.onSessionSelected = null;
       sessionApi.onSessionCreated = null;
     };
-  }, []);
+  }, [isLocalTimestampId]);
 
   // Setup multimodal capabilities tracking via custom hook
 
@@ -2175,16 +2220,20 @@ export default function ChatPage() {
       // agent's conversation.
       setChatLoading(true);
 
-      // Save current chat ID for the agent we're leaving
+      // Save current chat ID for the agent we're leaving.
+      // Skip temporary local timestamp ids — they are not real backend sessions
+      // and should not be restored later.
       const currentChatId =
         chatIdRef.current || lastSessionIdRef.current || undefined;
-      if (currentChatId && prevAgent) {
+      if (currentChatId && prevAgent && !isLocalTimestampId(currentChatId)) {
         setLastChatId(prevAgent, currentChatId);
       }
 
-      // Restore last chat ID for the agent we're switching to
+      // Restore last chat ID for the agent we're switching to.
+      // Ignore temporary local timestamp ids that may have been persisted
+      // before this guard was added.
       const restored = getLastChatId(selectedAgent);
-      if (restored) {
+      if (restored && !isLocalTimestampId(restored)) {
         navigateRef.current(buildSessionPath("chat", restored), {
           replace: true,
         });
@@ -2205,7 +2254,7 @@ export default function ChatPage() {
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, setLastChatId, getLastChatId]);
+  }, [selectedAgent, setLastChatId, getLastChatId, isLocalTimestampId]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {

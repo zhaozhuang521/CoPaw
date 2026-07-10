@@ -441,17 +441,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  /** Delete a session: call deleteChat API then refresh the list */
+  /** Delete a session: call sessionApi.removeSession then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId) as
         | ExtendedChatSession
         | undefined;
-      const backendId = session ? getBackendId(session) : null;
+      if (!session) return;
 
-      if (backendId) {
-        await chatApi.deleteChat(backendId);
-      }
+      // Use sessionApi.removeSession so the central onSessionRemoved callback
+      // clears the URL and lastChatIdByAgent state for the current agent.
+      await sessionApi.removeSession(session);
 
       localStorage.removeItem(`approval_level-${sessionId}`);
 

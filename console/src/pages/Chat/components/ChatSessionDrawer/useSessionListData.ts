@@ -247,8 +247,11 @@ export function useSessionListData(
   const handleDelete = useCallback(
     async (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId);
-      const backendId = session ? getBackendId(session) : null;
-      if (backendId) await chatApi.deleteChat(backendId);
+      if (!session) return;
+
+      // Use sessionApi.removeSession so the central onSessionRemoved callback
+      // clears the URL and lastChatIdByAgent state for the current agent.
+      await sessionApi.removeSession(session);
 
       localStorage.removeItem(`approval_level-${sessionId}`);
 

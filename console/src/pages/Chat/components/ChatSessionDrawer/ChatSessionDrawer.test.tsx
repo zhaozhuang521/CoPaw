@@ -38,6 +38,7 @@ const {
   mockGetSessionList,
   mockNavigate,
   mockGetEffectiveSessionId,
+  mockRemoveSession,
 } = vi.hoisted(() => ({
   mockCreateSession: vi.fn().mockResolvedValue(undefined),
   mockSetCurrentSessionId: vi.fn(),
@@ -47,6 +48,7 @@ const {
   mockGetSessionList: vi.fn().mockResolvedValue([]),
   mockNavigate: vi.fn(),
   mockGetEffectiveSessionId: vi.fn((id: string) => id),
+  mockRemoveSession: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
@@ -81,6 +83,7 @@ vi.mock("../../sessionApi", () => ({
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
     getEffectiveSessionId: mockGetEffectiveSessionId,
+    removeSession: mockRemoveSession,
   },
 }));
 
@@ -259,7 +262,7 @@ describe("ChatSessionDrawer", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("delete calls deleteChat with backend id and refreshes", async () => {
+  it("delete calls sessionApi.removeSession and refreshes", async () => {
     withSession({ realId: "uuid-1" });
     const user = userEvent.setup();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
@@ -267,11 +270,13 @@ describe("ChatSessionDrawer", () => {
       expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId("delete-btn"));
-    expect(mockDeleteChat).toHaveBeenCalledWith("uuid-1");
+    expect(mockRemoveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "s1", realId: "uuid-1" }),
+    );
     expect(mockGetSessionList).toHaveBeenCalled();
   });
 
-  it("delete with numeric id skips deleteChat API", async () => {
+  it("delete with numeric id still calls removeSession", async () => {
     withSession({ id: "12345" });
     const user = userEvent.setup();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
@@ -279,7 +284,9 @@ describe("ChatSessionDrawer", () => {
       expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId("delete-btn"));
-    expect(mockDeleteChat).not.toHaveBeenCalled();
+    expect(mockRemoveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "12345" }),
+    );
   });
 
   it("edit start sets editing state and edit submit calls updateChat", async () => {

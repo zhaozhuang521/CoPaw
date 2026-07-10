@@ -15,6 +15,9 @@ const STORAGE_KEY = "qwenpaw-agent-storage";
  */
 const LAST_USED_AGENT_KEY = "qwenpaw-last-used-agent";
 
+/** Returns true for temporary local session ids like 1783653273463-0c3cyij. */
+const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
+
 interface AgentStore {
   selectedAgent: string;
   agents: AgentSummary[];
@@ -26,6 +29,7 @@ interface AgentStore {
   removeAgent: (agentId: string) => void;
   updateAgent: (agentId: string, updates: Partial<AgentSummary>) => void;
   setLastChatId: (agentId: string, chatId: string) => void;
+  removeLastChatId: (agentId: string) => void;
   getLastChatId: (agentId: string) => string | undefined;
 }
 
@@ -110,6 +114,12 @@ export const useAgentStore = create<AgentStore>()(
         if (shouldRefresh) menuRegistry.refresh();
       },
 
+      removeLastChatId: (agentId) =>
+        set((state) => {
+          const { [agentId]: _, ...remainingChatIds } = state.lastChatIdByAgent;
+          return { lastChatIdByAgent: remainingChatIds };
+        }),
+
       updateAgent: (agentId, updates) =>
         set((state) => ({
           agents: state.agents.map((a) =>
@@ -117,10 +127,22 @@ export const useAgentStore = create<AgentStore>()(
           ),
         })),
 
-      setLastChatId: (agentId, chatId) =>
+      setLastChatId: (agentId, chatId) => {
+        // Never persist a temporary local timestamp id. These ids only exist in
+        // memory before the first message is sent and should not be restored on
+        // agent switch.
+        if (isLocalTimestamp(chatId)) {
+          set((state) => {
+            const { [agentId]: _, ...remainingChatIds } =
+              state.lastChatIdByAgent;
+            return { lastChatIdByAgent: remainingChatIds };
+          });
+          return;
+        }
         set((state) => ({
           lastChatIdByAgent: { ...state.lastChatIdByAgent, [agentId]: chatId },
-        })),
+        }));
+      },
 
       getLastChatId: (agentId) => get().lastChatIdByAgent[agentId],
     }),
