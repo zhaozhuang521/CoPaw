@@ -1,0 +1,521 @@
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.d.ts b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.d.ts
+index c372c95..0118f30 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.d.ts
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.d.ts
+@@ -11,6 +11,6 @@ export declare function areAnchorPositionsEqual(prev: Record<string, number>, ne
+ export declare function getMessageElementMapInScrollContainer(scrollEl: HTMLElement): Map<string, HTMLElement>;
+ export declare function getMessageElementInScrollContainer(scrollEl: HTMLElement, messageId: string): HTMLElement;
+ export declare function getScrollVisibleTopOffset(scrollEl: HTMLElement): number;
+-export declare function getActiveAnchorId(scrollEl: HTMLElement, anchors: UserMessageAnchor[], topOffset?: number, targetMap?: Map<string, HTMLElement>, targetRects?: Map<string, DOMRect>): string;
++export declare function getActiveAnchorId(scrollEl: HTMLElement, anchors: UserMessageAnchor[], topOffset?: number, targetMap?: Map<string, HTMLElement>, targetRects?: Map<string, DOMRect>, messageIds?: string[]): string | undefined;
+ export declare function getTargetTopOffset(scrollEl: HTMLElement, target: HTMLElement, topOffset?: number): number;
+ export declare function scrollTargetIntoContainerTop(scrollEl: HTMLElement, target: HTMLElement, behavior?: ScrollBehavior, topOffset?: number): void;
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.js
+index fdc3a53..ef2900c 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/helpers.js
+@@ -162,26 +162,43 @@ export function getActiveAnchorId(scrollEl, anchors) {
+   var topOffset = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
+   var targetMap = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : getMessageElementMapInScrollContainer(scrollEl);
+   var targetRects = arguments.length > 4 ? arguments[4] : undefined;
++  var messageIds = arguments.length > 5 ? arguments[5] : undefined;
++  var anchorIds = new Set(anchors.map(function (anchor) { return anchor.id; }));
++  var anchorByMessageId = new Map();
++  var precedingAnchorId;
++  (messageIds || anchors.map(function (anchor) { return anchor.id; })).forEach(function (id) {
++    if (anchorIds.has(id)) precedingAnchorId = id;
++    if (precedingAnchorId) anchorByMessageId.set(id, precedingAnchorId);
++  });
++  var renderedAnchorIds = new Set();
++  targetMap.forEach(function (_target, id) {
++    var anchorId = anchorByMessageId.get(id);
++    if (anchorId) renderedAnchorIds.add(anchorId);
++  });
+   var renderedAnchors = anchors.filter(function (anchor) {
+-    return targetMap.has(anchor.id);
++    return renderedAnchorIds.has(anchor.id);
+   });
+   var boundaryAnchorId = getScrollBoundaryAnchorId(scrollEl, renderedAnchors);
+   if (boundaryAnchorId) return boundaryAnchorId;
+   var scrollRect = scrollEl.getBoundingClientRect();
+   var activeLineTop = scrollRect.top + topOffset;
+   var activeAnchorId;
+-  var minDistance = Number.POSITIVE_INFINITY;
+-  renderedAnchors.forEach(function (anchor) {
+-    var target = targetMap.get(anchor.id);
+-    if (!target) return;
+-    var targetRect = (targetRects === null || targetRects === void 0 ? void 0 : targetRects.get(anchor.id)) || target.getBoundingClientRect();
+-    var distance = Math.abs(targetRect.top - activeLineTop);
+-    if (distance < minDistance) {
+-      minDistance = distance;
+-      activeAnchorId = anchor.id;
++  var firstBelowAnchorId;
++  var lastTop = Number.NEGATIVE_INFINITY;
++  var firstBelowTop = Number.POSITIVE_INFINITY;
++  targetMap.forEach(function (target, id) {
++    var anchorId = anchorByMessageId.get(id);
++    if (!anchorId) return;
++    var targetRect = (targetRects && targetRects.get(id)) || target.getBoundingClientRect();
++    if (targetRect.top <= activeLineTop + 1 && targetRect.top > lastTop) {
++      lastTop = targetRect.top;
++      activeAnchorId = anchorId;
++    } else if (targetRect.top > activeLineTop + 1 && targetRect.top < firstBelowTop) {
++      firstBelowTop = targetRect.top;
++      firstBelowAnchorId = anchorId;
+     }
+   });
+-  return activeAnchorId;
++  return activeAnchorId || firstBelowAnchorId;
+ }
+ export function getTargetTopOffset(scrollEl, target) {
+   var topOffset = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 0;
+diff --git a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/index.js b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/index.js
+index 46d6d77..37a0d77 100644
+--- a/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/index.js
++++ b/node_modules/@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/MessageList/UserMessageAnchors/index.js
+@@ -123,25 +123,21 @@ function _scrollTargetIntoContainerTopAndSettle() {
+           target = getMessageElementInScrollContainer(scrollEl, messageId) || target;
+           topOffset = getScrollVisibleTopOffset(scrollEl);
+           offset = getTargetTopOffset(scrollEl, target, topOffset);
+-          if (!(Math.abs(offset) <= TARGET_TOP_TOLERANCE)) {
++          if (!(Math.abs(offset) <= TARGET_TOP_TOLERANCE || isScrollAtBoundaryForOffset(scrollEl, offset))) {
+             _context3.next = 20;
+             break;
+           }
+-          stableFrames += 1;
++          stableFrames = previousOffset !== undefined && Math.abs(offset - previousOffset) < 0.5 ? stableFrames + 1 : 1;
++          previousOffset = offset;
+           if (!(stableFrames >= TARGET_TOP_STABLE_FRAMES)) {
+             _context3.next = 19;
+             break;
+           }
++          scrollEl.scrollTo({ top: scrollEl.scrollTop, left: scrollEl.scrollLeft, behavior: 'instant' });
+           return _context3.abrupt("return", target);
+         case 19:
+           return _context3.abrupt("continue", 7);
+         case 20:
+-          if (!isScrollAtBoundaryForOffset(scrollEl, offset)) {
+-            _context3.next = 22;
+-            break;
+-          }
+-          return _context3.abrupt("return", target);
+-        case 22:
+           stableFrames = 0;
+           elapsed = window.performance.now() - startTime;
+           offsetSettled = previousOffset !== undefined && Math.abs(offset - previousOffset) < 0.5;
+@@ -245,23 +241,26 @@ function UserMessageAnchorDirectory(props) {
+     activeAnchorId = props.activeAnchorId,
+     openVersion = props.openVersion,
+     prefixCls = props.prefixCls,
+-    onAnchorClick = props.onAnchorClick;
++    onAnchorClick = props.onAnchorClick,
++    onLocateActiveAnchor = props.onLocateActiveAnchor;
+   var _useTranslation = useTranslation(),
+     t = _useTranslation.t;
+-  var activeItemRef = React.useRef(null);
++  var itemRefs = React.useRef(new Map());
+   var listRef = React.useRef(null);
+   var scrollActiveItemIntoView = useCallback(function () {
+     var behavior = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 'smooth';
+-    var activeItem = activeItemRef.current;
++    var messageId = onLocateActiveAnchor() || activeAnchorId || anchors[anchors.length - 1]?.id;
++    var activeItem = itemRefs.current.get(messageId);
+     var list = listRef.current;
+     if (!activeItem || !list) return;
+-    var itemOffsetTop = activeItem.offsetTop;
+-    var nextScrollTop = itemOffsetTop - (list.clientHeight - activeItem.offsetHeight) / 2;
++    var itemRect = activeItem.getBoundingClientRect();
++    var listRect = list.getBoundingClientRect();
++    var nextScrollTop = list.scrollTop + itemRect.top - listRect.top - list.clientTop - (list.clientHeight - itemRect.height) / 2;
+     list.scrollTo({
+       top: Math.max(0, nextScrollTop),
+       behavior: behavior
+     });
+-  }, []);
++  }, [activeAnchorId, anchors, onLocateActiveAnchor]);
+   React.useEffect(function () {
+     if (!openVersion) return;
+     var frame = window.requestAnimationFrame(function () {
+@@ -270,7 +269,7 @@ function UserMessageAnchorDirectory(props) {
+     return function () {
+       return window.cancelAnimationFrame(frame);
+     };
+-  }, [openVersion, scrollActiveItemIntoView]);
++  }, [activeAnchorId, openVersion, scrollActiveItemIntoView]);
+   return /*#__PURE__*/_jsxs("div", {
+     className: "".concat(prefixCls, "-anchor-directory"),
+     children: [/*#__PURE__*/_jsxs("div", {
+@@ -282,7 +281,7 @@ function UserMessageAnchorDirectory(props) {
+       }), /*#__PURE__*/_jsx("button", {
+         "aria-label": "Scroll directory to active user message",
+         className: "".concat(prefixCls, "-anchor-directory-locate"),
+-        disabled: !activeAnchorId,
++        disabled: !anchors.length,
+         onClick: function onClick(event) {
+           event.stopPropagation();
+           scrollActiveItemIntoView('smooth');
+@@ -304,7 +303,10 @@ function UserMessageAnchorDirectory(props) {
+           onClick: function onClick() {
+             return onAnchorClick(anchor.id);
+           },
+-          ref: active ? activeItemRef : undefined,
++          ref: function (node) {
++            if (node) itemRefs.current.set(anchor.id, node);
++            else itemRefs.current.delete(anchor.id);
++          },
+           type: "button",
+           children: [/*#__PURE__*/_jsxs("span", {
+             className: "".concat(prefixCls, "-anchor-directory-main"),
+@@ -328,8 +330,8 @@ function getAnchorGroups(anchors, anchorPositions, activeAnchorId, minGap, track
+   var minGapPercent = trackHeight > 0 ? minGap / trackHeight * 100 : 0;
+   var groups = [];
+   anchors.forEach(function (anchor) {
+-    var _anchorPositions$anch;
+-    var top = (_anchorPositions$anch = anchorPositions[anchor.id]) !== null && _anchorPositions$anch !== void 0 ? _anchorPositions$anch : anchor.orderPercent;
++    var top = anchorPositions[anchor.id];
++    if (top === undefined) return;
+     var lastGroup = groups[groups.length - 1];
+     if (lastGroup && Math.abs(top - lastGroup.lastTop) < minGapPercent) {
+       lastGroup.anchors.push(anchor);
+@@ -384,6 +386,7 @@ export default function UserMessageAnchors(props) {
+   var frameRef = React.useRef();
+   var highlightFrameRef = React.useRef();
+   var highlightTimeoutRef = React.useRef();
++  var highlightedTargetRef = React.useRef();
+   var scrollSequenceRef = React.useRef(0);
+   var cancelNavigationRef = React.useRef();
+   var _useState = useState({}),
+@@ -425,12 +428,27 @@ export default function UserMessageAnchors(props) {
+       return result;
+     }, []);
+   }, [enabled, items]);
++  var messageIds = useMemo(function () {
++    return items.slice().reverse().map(function (message) { return message.id; });
++  }, [items]);
+   var anchorIdsKey = useMemo(function () {
+     return anchors.map(function (anchor) {
+       return anchor.id;
+     }).join('|');
+   }, [anchors]);
+   var visible = enabled && anchors.length > 0 && anchors.length >= normalizedMinCount;
++  var clearHighlight = useCallback(function () {
++    if (highlightFrameRef.current) {
++      window.cancelAnimationFrame(highlightFrameRef.current);
++      highlightFrameRef.current = undefined;
++    }
++    if (highlightTimeoutRef.current) {
++      window.clearTimeout(highlightTimeoutRef.current);
++      highlightTimeoutRef.current = undefined;
++    }
++    highlightedTargetRef.current?.classList.remove(`${prefixCls}-anchor-target-active`);
++    highlightedTargetRef.current = undefined;
++  }, [prefixCls]);
+   var measureAnchors = useCallback(function () {
+     var _anchorTrackRef$curre, _anchorTrackRef$curre2;
+     var root = (_anchorTrackRef$curre = anchorTrackRef.current) === null || _anchorTrackRef$curre === void 0 ? void 0 : _anchorTrackRef$curre.closest(".".concat(prefixCls));
+@@ -458,7 +476,7 @@ export default function UserMessageAnchors(props) {
+     targetMap.forEach(function (target, id) {
+       targetRects.set(id, target.getBoundingClientRect());
+     });
+-    var nextActiveAnchorId = lockedAnchorExists ? lockedAnchorId : getActiveAnchorId(scrollEl, anchors, visibleTopOffset, targetMap, targetRects);
++    var nextActiveAnchorId = lockedAnchorExists ? lockedAnchorId : getActiveAnchorId(scrollEl, anchors, visibleTopOffset, targetMap, targetRects, messageIds);
+     setActiveAnchorId(function (prev) {
+       return prev === nextActiveAnchorId ? prev : nextActiveAnchorId;
+     });
+@@ -469,7 +487,7 @@ export default function UserMessageAnchors(props) {
+       setTrackHeight(function (prev) {
+         return prev === 0 ? prev : 0;
+       });
+-      return;
++      return nextActiveAnchorId;
+     }
+     var nextTrackHeight = ((_anchorTrackRef$curre2 = anchorTrackRef.current) === null || _anchorTrackRef$curre2 === void 0 ? void 0 : _anchorTrackRef$curre2.clientHeight) || 0;
+     setTrackHeight(function (prev) {
+@@ -477,18 +495,11 @@ export default function UserMessageAnchors(props) {
+     });
+     var scrollHeight = Math.max(scrollEl.scrollHeight, 1);
+     var maxScrollTop = Math.max(scrollEl.scrollHeight - scrollEl.clientHeight, 0);
+-    var visualScrollTop = maxScrollTop + scrollEl.scrollTop;
++    var visualScrollTop = scrollEl.className.includes('bubble-list-order-desc')
++      ? maxScrollTop + scrollEl.scrollTop : scrollEl.scrollTop;
+     var nextPositions = anchors.reduce(function (result, anchor) {
+-      var target = targetMap.get(anchor.id);
+-      if (!target) {
+-        result[anchor.id] = anchor.orderPercent;
+-        return result;
+-      }
+       var targetRect = targetRects.get(anchor.id);
+-      if (!targetRect) {
+-        result[anchor.id] = anchor.orderPercent;
+-        return result;
+-      }
++      if (!targetRect) return result;
+       var viewportCenter = targetRect.top - scrollRect.top + targetRect.height / 2;
+       var visualCenter = visualScrollTop + viewportCenter;
+       result[anchor.id] = clamp(visualCenter / scrollHeight * 100, 0, 100);
+@@ -498,7 +509,8 @@ export default function UserMessageAnchors(props) {
+       if (areAnchorPositionsEqual(prev, nextPositions)) return prev;
+       return nextPositions;
+     });
+-  }, [anchors, prefixCls, scrollContainerClassName, variant]);
++    return nextActiveAnchorId;
++  }, [anchors, messageIds, prefixCls, scrollContainerClassName, variant]);
+   var updateAnchors = useCallback(function () {
+     if (frameRef.current) {
+       window.cancelAnimationFrame(frameRef.current);
+@@ -518,6 +530,8 @@ export default function UserMessageAnchors(props) {
+     var _anchorTrackRef$curre3;
+     cancelPendingAnchorPositionUpdate();
+     if (!visible) {
++      cancelNavigationRef.current?.(false);
++      clearHighlight();
+       activeAnchorLockRef.current = undefined;
+       setAnchorPositions(function (prev) {
+         return Object.keys(prev).length ? {} : prev;
+@@ -552,159 +566,78 @@ export default function UserMessageAnchors(props) {
+       scrollEl === null || scrollEl === void 0 || scrollEl.removeEventListener('load', updateAnchors, true);
+       window.removeEventListener('resize', updateAnchors);
+     };
+-  }, [anchorIdsKey, cancelPendingAnchorPositionUpdate, measureAnchors, prefixCls, renderedItemsKey, scrollContainerClassName, updateAnchors, variant, visible]);
+-  var handleAnchorClick = useCallback( /*#__PURE__*/function () {
+-    var _ref3 = _asyncToGenerator( /*#__PURE__*/_regeneratorRuntime().mark(function _callee(messageId) {
+-      var _cancelNavigationRef$, _anchorTrackRef$curre4;
+-      var root, scrollEl, scrollSequence, isCurrent, highlightedTarget, removeScrollIntentListener, finishNavigation, cancelNavigation, target, targetAtTop;
+-      return _regeneratorRuntime().wrap(function _callee$(_context) {
+-        while (1) switch (_context.prev = _context.next) {
+-          case 0:
+-            (_cancelNavigationRef$ = cancelNavigationRef.current) === null || _cancelNavigationRef$ === void 0 || _cancelNavigationRef$.call(cancelNavigationRef, false);
+-            root = (_anchorTrackRef$curre4 = anchorTrackRef.current) === null || _anchorTrackRef$curre4 === void 0 ? void 0 : _anchorTrackRef$curre4.closest(".".concat(prefixCls));
+-            scrollEl = root === null || root === void 0 ? void 0 : root.querySelector(".".concat(scrollContainerClassName));
+-            if (scrollEl) {
+-              _context.next = 5;
+-              break;
+-            }
+-            return _context.abrupt("return");
+-          case 5:
+-            scrollSequence = ++scrollSequenceRef.current;
+-            isCurrent = function isCurrent() {
+-              return scrollSequenceRef.current === scrollSequence;
+-            };
+-            activeAnchorLockRef.current = messageId;
+-            setActiveAnchorId(messageId);
+-            removeScrollIntentListener = function removeScrollIntentListener() {};
+-            finishNavigation = function finishNavigation() {
+-              var _highlightedTarget;
+-              removeScrollIntentListener();
+-              if (highlightFrameRef.current) {
+-                window.cancelAnimationFrame(highlightFrameRef.current);
+-                highlightFrameRef.current = undefined;
+-              }
+-              if (highlightTimeoutRef.current) {
+-                window.clearTimeout(highlightTimeoutRef.current);
+-                highlightTimeoutRef.current = undefined;
+-              }
+-              (_highlightedTarget = highlightedTarget) === null || _highlightedTarget === void 0 || _highlightedTarget.classList.remove("".concat(prefixCls, "-anchor-target-active"));
+-              cancelNavigationRef.current = undefined;
+-              activeAnchorLockRef.current = undefined;
+-            };
+-            cancelNavigation = function cancelNavigation() {
+-              var measure = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : true;
+-              if (!isCurrent()) return;
+-              scrollSequenceRef.current += 1;
+-              finishNavigation();
+-              // Stop the browser's pending smooth animation as well as our RAF loop.
+-              // Instant also works when the host applies CSS scroll-behavior: smooth.
+-              scrollEl.scrollTo({
+-                top: scrollEl.scrollTop,
+-                left: scrollEl.scrollLeft,
+-                behavior: 'instant'
+-              });
+-              if (measure) measureAnchors();
+-            };
+-            cancelNavigationRef.current = cancelNavigation;
+-            // Attach before history/virtualized messages are revealed: user input
+-            // during that await must also invalidate the eventual alignment.
+-            removeScrollIntentListener = listenForScrollIntent(scrollEl, function () {
+-              return cancelNavigation();
+-            });
+-            _context.prev = 14;
+-            _context.next = 17;
+-            return onEnsureMessageVisible(messageId);
+-          case 17:
+-            if (isCurrent()) {
+-              _context.next = 19;
+-              break;
+-            }
+-            return _context.abrupt("return");
+-          case 19:
+-            cancelPendingAnchorPositionUpdate();
+-            _context.next = 22;
+-            return waitForMessageElement(scrollEl, messageId);
+-          case 22:
+-            target = _context.sent;
+-            if (isCurrent()) {
+-              _context.next = 25;
+-              break;
+-            }
+-            return _context.abrupt("return");
+-          case 25:
+-            if (target) {
+-              _context.next = 29;
+-              break;
+-            }
+-            finishNavigation();
+-            measureAnchors();
+-            return _context.abrupt("return");
+-          case 29:
+-            _context.next = 31;
+-            return waitForNextFrame();
+-          case 31:
+-            if (isCurrent()) {
+-              _context.next = 33;
+-              break;
+-            }
+-            return _context.abrupt("return");
+-          case 33:
+-            _context.next = 35;
+-            return scrollTargetIntoContainerTopAndSettle(scrollEl, messageId, target, isCurrent);
+-          case 35:
+-            targetAtTop = _context.sent;
+-            if (isCurrent()) {
+-              _context.next = 38;
+-              break;
+-            }
+-            return _context.abrupt("return");
+-          case 38:
+-            setActiveAnchorId(messageId);
+-            cancelPendingAnchorPositionUpdate();
+-            highlightedTarget = targetAtTop;
+-            targetAtTop.classList.remove("".concat(prefixCls, "-anchor-target-active"));
+-            highlightFrameRef.current = window.requestAnimationFrame(function () {
+-              highlightFrameRef.current = undefined;
+-              if (!isCurrent()) return;
+-              targetAtTop.classList.add("".concat(prefixCls, "-anchor-target-active"));
+-              highlightTimeoutRef.current = window.setTimeout(function () {
+-                if (!isCurrent()) return;
+-                finishNavigation();
+-                measureAnchors();
+-              }, TARGET_ACTIVE_DURATION);
+-            });
+-            _context.next = 48;
+-            break;
+-          case 45:
+-            _context.prev = 45;
+-            _context.t0 = _context["catch"](14);
+-            if (isCurrent()) {
+-              finishNavigation();
+-              measureAnchors();
+-            }
+-          case 48:
+-          case "end":
+-            return _context.stop();
+-        }
+-      }, _callee, null, [[14, 45]]);
+-    }));
+-    return function (_x7) {
+-      return _ref3.apply(this, arguments);
++  }, [anchorIdsKey, cancelPendingAnchorPositionUpdate, clearHighlight, measureAnchors, prefixCls, renderedItemsKey, scrollContainerClassName, updateAnchors, variant, visible]);
++  var handleAnchorClick = useCallback(async function (messageId) {
++    cancelNavigationRef.current?.(false);
++    clearHighlight();
++    var root = anchorTrackRef.current?.closest('.' + prefixCls);
++    var scrollEl = root?.querySelector('.' + scrollContainerClassName);
++    if (!scrollEl) return;
++
++    var scrollSequence = ++scrollSequenceRef.current;
++    var isCurrent = function () { return scrollSequenceRef.current === scrollSequence; };
++    activeAnchorLockRef.current = messageId;
++    setActiveAnchorId(messageId);
++
++    var removeScrollIntentListener = function () {};
++    var finishNavigation = function () {
++      removeScrollIntentListener();
++      cancelNavigationRef.current = undefined;
++      activeAnchorLockRef.current = undefined;
+     };
+-  }(), [cancelPendingAnchorPositionUpdate, measureAnchors, onEnsureMessageVisible, prefixCls, scrollContainerClassName]);
+-  React.useEffect(function () {
+-    return function () {
+-      var _cancelNavigationRef$2;
+-      (_cancelNavigationRef$2 = cancelNavigationRef.current) === null || _cancelNavigationRef$2 === void 0 || _cancelNavigationRef$2.call(cancelNavigationRef, false);
++    var cancelNavigation = function (measure = true) {
++      if (!isCurrent()) return;
+       scrollSequenceRef.current += 1;
+-      if (highlightFrameRef.current) {
+-        window.cancelAnimationFrame(highlightFrameRef.current);
++      finishNavigation();
++      clearHighlight();
++      // Stop both native smooth scrolling and the pending alignment loop.
++      scrollEl.scrollTo({ top: scrollEl.scrollTop, left: scrollEl.scrollLeft, behavior: 'instant' });
++      if (measure) measureAnchors();
++    };
++    cancelNavigationRef.current = cancelNavigation;
++    removeScrollIntentListener = listenForScrollIntent(scrollEl, function () { cancelNavigation(); });
++
++    try {
++      await onEnsureMessageVisible(messageId);
++      if (!isCurrent()) return;
++      cancelPendingAnchorPositionUpdate();
++      var target = await waitForMessageElement(scrollEl, messageId);
++      if (!isCurrent()) return;
++      if (!target) {
++        finishNavigation();
++        measureAnchors();
++        return;
+       }
+-      if (highlightTimeoutRef.current) {
+-        window.clearTimeout(highlightTimeoutRef.current);
++      await waitForNextFrame();
++      if (!isCurrent()) return;
++      var targetAtTop = await scrollTargetIntoContainerTopAndSettle(scrollEl, messageId, target, isCurrent);
++      if (!isCurrent()) return;
++
++      cancelPendingAnchorPositionUpdate();
++      // A visual highlight must not hold navigation state or scroll listeners.
++      finishNavigation();
++      measureAnchors();
++      highlightedTargetRef.current = targetAtTop;
++      highlightFrameRef.current = window.requestAnimationFrame(function () {
++        highlightFrameRef.current = undefined;
++        if (!isCurrent()) return;
++        targetAtTop.classList.add(prefixCls + '-anchor-target-active');
++        highlightTimeoutRef.current = window.setTimeout(clearHighlight, TARGET_ACTIVE_DURATION);
++      });
++    } catch {
++      if (isCurrent()) {
++        finishNavigation();
++        measureAnchors();
+       }
++    }
++  }, [cancelPendingAnchorPositionUpdate, clearHighlight, measureAnchors, onEnsureMessageVisible, prefixCls, scrollContainerClassName]);
++  React.useEffect(function () {
++    return function () {
++      cancelNavigationRef.current?.(false);
++      scrollSequenceRef.current += 1;
++      clearHighlight();
+     };
+-  }, []);
++  }, [clearHighlight]);
+   if (!visible) return null;
+   var activeAnchorIndex = activeAnchorId ? anchors.findIndex(function (anchor) {
+     return anchor.id === activeAnchorId;
+@@ -736,6 +669,7 @@ export default function UserMessageAnchors(props) {
+           activeAnchorId: activeAnchorId,
+           anchors: anchors,
+           onAnchorClick: handleAnchorClick,
++          onLocateActiveAnchor: measureAnchors,
+           openVersion: directoryOpenVersion,
+           prefixCls: prefixCls
+         }),
+diff --git a/node_modules/@agentscope-ai/chat/lib/Bubble/Bubble.js b/node_modules/@agentscope-ai/chat/lib/Bubble/Bubble.js
+index 3866560..8358961 100644
+--- a/node_modules/@agentscope-ai/chat/lib/Bubble/Bubble.js
++++ b/node_modules/@agentscope-ai/chat/lib/Bubble/Bubble.js
+@@ -81,6 +81,7 @@ var Bubble = function Bubble(props) {
+   return /*#__PURE__*/_jsxs(_Fragment, {
+     children: [/*#__PURE__*/_jsx(Style, {}), /*#__PURE__*/_jsx(AvatarStyle, {}), /*#__PURE__*/_jsx("div", {
+       style: _objectSpread({
++        flexShrink: 0,
+         contentVisibility: 'auto',
+         containIntrinsicSize: 'auto 160px'
+       }, style),

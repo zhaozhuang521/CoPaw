@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "patch-package --error-on-fail",
     "dev": "vite --host",
     "build": "tsc -b && vite build && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
     "build:prod": "tsc -b && vite build --mode production && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
@@ -101,6 +102,7 @@
     "globals": "^16.0.0",
     "jsdom": "^29.0.2",
     "less": "^4.5.1",
+    "patch-package": "8.0.1",
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
