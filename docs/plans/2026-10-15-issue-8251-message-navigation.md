@@ -74,8 +74,8 @@ Issue: https://github.com/agentscope-ai/QwenPaw/issues/8251
 - [x] Pass navigation regressions and related integration tests.
 - [x] Pass type checks and frontend formatting checks.
 - [x] Verify long-session interactions in a browser and record the results.
-- [ ] Repeat the full frontend suite and production build after the final
-  browser-driven sizing and boundary fixes.
+- [x] Repeat the production build after the final browser-driven fixes.
+- [x] Repeat the full frontend suite after the final browser-driven fixes.
 
 ## Verification results
 
@@ -90,6 +90,10 @@ Issue: https://github.com/agentscope-ai/QwenPaw/issues/8251
 - ESLint passes for both new regression files.
 - Prettier checks pass for both test files, package files, and patch README.
 - A clean `npm ci` reapplies the final four-file patch successfully.
+- The final production build passes on 2026-10-16, including TypeScript,
+  Monaco CSS verification, compression of 484 assets, and the initial bundle
+  check (9.84 MiB raw / 2.54 MiB Brotli). The emitted chat vendor bundle contains
+  the patched navigator and bubble sizing code.
 - Chromium browser checks pass at 1280x900 and 820x1000 using 50 questions,
   native SDK Markdown, real history pagination, and the Console wheel handler.
   Historical jumps, rapid replacement, reading within long answers, directory
@@ -98,7 +102,7 @@ Issue: https://github.com/agentscope-ai/QwenPaw/issues/8251
   The 375x812 layout has no horizontal overflow and retains the SDK's existing
   hidden navigator behavior at narrow widths. These are local SDK fixture checks,
   not a Windows desktop or backend session test.
-- The earlier iteration passed all 5,093 frontend tests and the production build.
-  Repeat these checks for the final sizing/boundary changes and new regression.
+- The final coverage run passes all 5,094 tests across 487 files on 2026-10-16:
+  `npm run test:coverage -- --maxWorkers=3`. Line coverage is 72.65%.
 - The versioned patch changes four distributed SDK files: navigation,
   geometry helpers, the matching helper declaration, and bubble flex sizing.
